@@ -186,3 +186,74 @@
         )
     )
 )
+
+;; Initiates the unstaking process by setting a cooldown period
+(define-public (initiate-unstake (amount uint))
+    (let
+        (
+            (staking-position (unwrap! (map-get? StakingPositions tx-sender) ERR-NO-STAKE))
+            (current-amount (get amount staking-position))
+        )
+        (asserts! (>= current-amount amount) ERR-INSUFFICIENT-STX)
+        (asserts! (is-none (get cooldown-start staking-position)) ERR-COOLDOWN-ACTIVE)
+        
+        ;; Update staking position with cooldown
+        (map-set StakingPositions
+            tx-sender
+            (merge staking-position
+                {
+                    cooldown-start: (some block-height)
+                }
+            )
+        )
+        (ok true)
+    )
+)
+
+;; Completes the unstaking process after the cooldown period
+(define-public (complete-unstake)
+    (let
+        (
+            (staking-position (unwrap! (map-get? StakingPositions tx-sender) ERR-NO-STAKE))
+            (cooldown-start (unwrap! (get cooldown-start staking-position) ERR-NOT-AUTHORIZED))
+        )
+        (asserts! (>= (- block-height cooldown-start) (var-get cooldown-period)) ERR-COOLDOWN-ACTIVE)
+        
+        ;; Transfer STX back to user
+        (try! (as-contract (stx-transfer? (get amount staking-position) tx-sender tx-sender)))
+        
+        ;; Clear staking position
+        (map-delete StakingPositions tx-sender)
+        
+        (ok true)
+    )
+)
+
+;; Allows users to create a governance proposal
+(define-public (create-proposal (description (string-utf8 256)) (voting-period uint))
+    (let
+        (
+            (user-position (unwrap! (map-get? UserPositions tx-sender) ERR-NOT-AUTHORIZED))
+            (proposal-id (+ (var-get proposal-count) u1))
+        )
+        (asserts! (>= (get voting-power user-position) u1000000) ERR-NOT-AUTHORIZED)
+        (asserts! (is-valid-description description) ERR-INVALID-PROTOCOL)
+        (asserts! (is-valid-voting-period voting-period) ERR-INVALID-PROTOCOL)
+        
+        (map-set Proposals { proposal-id: proposal-id }
+            {
+                creator: tx-sender,
+                description: description,
+                start-block: block-height,
+                end-block: (+ block-height voting-period),
+                executed: false,
+                votes-for: u0,
+                votes-against: u0,
+                minimum-votes: u1000000
+            }
+        )
+        
+        (var-set proposal-count proposal-id)
+        (ok proposal-id)
+    )
+)
