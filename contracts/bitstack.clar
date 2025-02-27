@@ -329,3 +329,53 @@
         )
     )
 )
+
+
+(define-private (calculate-lock-multiplier (lock-period uint))
+    (if (>= lock-period u8640)     ;; 2 months
+        u150                       ;; 1.5x multiplier
+        (if (>= lock-period u4320) ;; 1 month
+            u125                   ;; 1.25x multiplier
+            u100                   ;; 1x multiplier (no lock)
+        )
+    )
+)
+
+;; Calculates the rewards for a user based on their stake and the number of blocks
+(define-private (calculate-rewards (user principal) (blocks uint))
+    (let
+        (
+            (staking-position (unwrap! (map-get? StakingPositions user) u0))
+            (user-position (unwrap! (map-get? UserPositions user) u0))
+            (stake-amount (get amount staking-position))
+            (base-rate (var-get base-reward-rate))
+            (multiplier (get rewards-multiplier user-position))
+        )
+        (/ (* (* (* stake-amount base-rate) multiplier) blocks) u14400000)
+    )
+)
+
+;; Validates the proposal description length
+(define-private (is-valid-description (desc (string-utf8 256)))
+    (and 
+        (>= (len desc) u10)   ;; Minimum description length
+        (<= (len desc) u256)  ;; Maximum description length
+    )
+)
+
+;; Validates the lock period
+(define-private (is-valid-lock-period (lock-period uint))
+    (or 
+        (is-eq lock-period u0)   ;; No lock
+        (is-eq lock-period u4320) ;; 1 month
+        (is-eq lock-period u8640) ;; 2 months
+    )
+)
+
+;; Validates the voting period
+(define-private (is-valid-voting-period (period uint))
+    (and 
+        (>= period u100)      ;; Minimum voting blocks
+        (<= period u2880)     ;; Maximum voting blocks (approximately 1 day)
+    )
+)
